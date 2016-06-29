@@ -38,7 +38,7 @@ Resources:
           SourceSecurityGroupId: { Ref: LoadBalancerSecurityGroup }
         {% endfor %}
   {% for listener in listeners %}
-  "ELB{{listener.port}}to{{listener.instancePort}}":
+  "ELB{{listener.to_port}}to{{listener.from_port}}":
     Type: AWS::EC2::SecurityGroupEgress
     Properties:
       GroupId: { Ref: LoadBalancerSecurityGroup }
