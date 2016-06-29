@@ -17,8 +17,8 @@ Resources:
       GroupDescription: "frontend security group"
       SecurityGroupIngress:
         {% for rule in listeners %}
-        - FromPort:
-          ToPort:
+        - FromPort: "{{ rule.from_port }}"
+          ToPort: "{{ rule.to_port }}"
           IpProtocol: "{{ rule.proto|default('tcp') }}"
           {% if rule.cidr is defined %}CidrIp: ""{% endif %} 
           {% if rule.src_grp_id %}SourceSecurityGroupId:{% endif %}
@@ -33,7 +33,7 @@ Resources:
       SecurityGroupIngress:
         {% for rule in listeners %}
         - FromPort: "{{ rule.from_port }}"
-          ToPort: "{{ rule.to_port }}
+          ToPort: "{{ rule.to_port }}"
           IpProtocol: "{{ rule.proto|default('tcp') }}"
           SourceSecurityGroupId: { Ref: LoadBalancerSecurityGroup }
         {% endfor %}
