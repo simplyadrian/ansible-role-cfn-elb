@@ -1,0 +1,190 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Long lived load balancer for {{ elb_dns_name }}",
+  "Resources": {
+    "LoadBalancerSecurityGroup": {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": "{{regions[region].vpc}}",
+        "GroupDescription": "Load Balancers in this security group are allowed to connect to instances in the corresponding LoadBalancerBackendSecurityGroup in this stack",
+        "SecurityGroupIngress": [
+        {# allow connections on each listener's InstancePort #}
+        {% if elb_scheme == 'internal' %}{# each internal cidr per each listener, for internal ELBs #}
+        {% for listener in elb_listeners %}
+        {% for cidr in elb_internal_cidrs %}
+        { "FromPort": "{{ listener.port }}", "ToPort": "{{ listener.port }}", "IpProtocol": "tcp", "CidrIp": "{{ cidr }}" } {% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% else %}{# each listener allwed from 0.0.0.0/0, for internet-facing ELBs #}
+        {% for listener in elb_listeners %}
+        {% for source in listener.sources|default(['0.0.0.0/0']) %}
+        { "FromPort": "{{ listener.port }}", "ToPort": "{{ listener.port }}", "IpProtocol": "tcp", "CidrIp": "{{ listener.source | default('0.0.0.0/0')}}" } {% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% endif %}
+        ]
+      }
+    },
+    "LoadBalancerBackendSecurityGroup": {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": "{{regions[region].vpc}}",
+        "GroupDescription": "Instances in this security group allow connections from the corresponding LoadBalancerSecurityGroup; it should be applied to backends of this long lived load balancer",
+        "SecurityGroupIngress": [
+        {# allow connections from LoadBalancerSecurityGroup on each listener's InstancePort #}
+        {% for listener in elb_listeners %}
+          {
+            "FromPort": "{{ listener.instancePort }}",
+            "ToPort": "{{ listener.instancePort }}",
+            "IpProtocol": "tcp",
+            "SourceSecurityGroupId": { "Ref": "LoadBalancerSecurityGroup" }
+          }{% if not loop.last %}, {% endif %}
+        {% endfor %}
+        ]
+      }
+    },
+    {# finally, create an egress rule for each listener, for the backend instance port from the ELB
+       this is a separate resource because the security groups are inter-dependent #}
+    {% for listener in elb_listeners %}
+      "ELB{{listener.port}}to{{listener.instancePort}}": {
+        "Type": "AWS::EC2::SecurityGroupEgress",
+        "Properties": {
+          "GroupId": { "Ref": "LoadBalancerSecurityGroup" },
+          "IpProtocol": "tcp",
+          "FromPort": "{{ listener.instancePort }}",
+          "ToPort": "{{ listener.instancePort }}",
+          "DestinationSecurityGroupId": { "Ref": "LoadBalancerBackendSecurityGroup" }
+        }
+      },
+    {% endfor %}
+    "LoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        {% if elb_logging_enabled == true %}
+        "AccessLoggingPolicy" : {
+          "EmitInterval": "5",
+          "Enabled": true,
+          "S3BucketName": "{{ elb_logging_bucket }}",
+          "S3BucketPrefix": "{{ elb_logging_prefix }}"
+        },
+        {% endif %}
+        {% if elb_sticky_session == true %}
+        "LBCookieStickinessPolicy" : [
+          {
+            {% if elb_sticky_expiration is defined %}
+            "CookieExpirationPeriod" : "{{ elb_sticky_expiration }}",
+            {% endif %}
+            "PolicyName" : "defaultListener"
+          }
+        ],
+        {% endif %}
+        {% if elb_drain_time > 0 %}
+        "ConnectionDrainingPolicy":{
+            "Enabled": true,
+            "Timeout": {{elb_drain_time|int}}
+        },
+        {% endif %}
+        "Scheme": "{{ elb_scheme }}",
+        "CrossZone": "{{ elb_cross_zone }}",
+        "SecurityGroups": [ { "Ref": "LoadBalancerSecurityGroup" } ],
+        "Subnets": [
+          {% for subnet in regions[region].vpc_environments[environ][elb_subnet_group].subnets %}
+          "{{ subnet }}"{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        ],
+        "HealthCheck": {
+          "HealthyThreshold": "{{elb_health_check_healthy_threshold}}",
+          "UnhealthyThreshold": "{{elb_health_check_unhealthy_threshold}}",
+          "Interval": "{{elb_health_check_interval}}",
+          "Timeout": "{{elb_health_check_timeout}}",
+          "Target": "{{elb_health_check_target}}"
+        },
+        {% if elb_instances is defined %}
+        "Instances": [
+          {% for instance in elb_instances %}
+            "{{ instance }}"
+            {% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        {% endif %}
+        "Listeners": [
+        {% for listener in elb_listeners %}
+          {
+            "InstancePort": "{{ listener.instancePort }}",
+            "Protocol": "{{ listener.protocol }}",
+            "LoadBalancerPort": "{{ listener.port }}"
+            {% if elb_sticky_session == true %}
+            , "PolicyNames" : ["defaultListener"]
+            {% endif %}
+            {% if listener.protocol == 'https' or listener.protocol == 'ssl' %},
+            {% if elb_acm_id is defined %}
+              "SSLCertificateId" : { "Fn::Join" : ["", ["arn:aws:acm:{{ region }}:", "{{ aws_account_number }}", ":certificate/",
+                                 "{{ elb_acm_id }}" ]]}
+            {% else %}
+              "SSLCertificateId" : { "Fn::Join" : ["", ["arn:aws:iam::", "{{ aws_account_number }}", ":server-certificate/",
+	                             "{{ elb_cert_name | default(elb_dns_name) | regex_replace('\.$', '' ) }}"]]}
+            {% endif %}
+            {% if listener.instanceProtocol is defined %},
+              "InstanceProtocol": "{{ listener.instanceProtocol }}"
+            {% endif %}
+            {% endif %}
+          }
+        {% if not loop.last %},{% endif %}
+        {% endfor %}
+        ]
+        {% if elb_policy_names is defined %}
+          ,"Policies": [
+            {% for policyName in elb_policy_names %}
+              {
+                {% if policyName == 'EnableProxyProtocolPolicy' %}
+                  "PolicyName" : "EnableProxyProtocolPolicy",
+                  "PolicyType" : "ProxyProtocolPolicyType",
+                  "Attributes" : [{
+                    "Name":"ProxyProtocol",
+                    "Value":"true"
+                  }],
+                  "InstancePorts": [ "80" ]
+                {% endif %}
+              }
+              {% if not loop.last %}, {% endif %}
+            {% endfor %}
+          ]
+        {% endif %}
+        {% if elb_idle_timeout is defined %}
+          , "ConnectionSettings": {
+            "IdleTimeout" : {{ elb_idle_timeout }}
+          }
+        {% endif %}
+      }
+    },
+    "DNSRecord" : {
+      "Type" : "AWS::Route53::RecordSetGroup",
+      "Properties" : {
+        "HostedZoneName" : {% if elb_zone_name is defined %}"{{ elb_zone_name | regex_replace('([^.])$', '\\1.') }}"{% else %}"{{ elb_dns_name | regex_replace('([^.])$', '\\1.') }}"{% endif %},
+        "Comment" : "alias targeted to LoadBalancer for {{elb_stack_name}}",
+        "RecordSets" : [
+          {
+            "Name" : "{{ elb_dns_name }}",
+            "Type" : "A",
+            "AliasTarget" : {
+              "DNSName" : { "Fn::GetAtt" : ["LoadBalancer", "DNSName"] },
+              "HostedZoneId" : { "Fn::GetAtt" : ["LoadBalancer","CanonicalHostedZoneNameID"] }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "LoadBalancerName": {
+      "Description": "Long Lived Load Balancer name",
+      "Value": {"Ref": "LoadBalancer" }
+    },
+    "TargetSecurityGroupId": {
+      "Description": "Add backends to this security group to allow access from the ELB",
+      "Value": {"Ref": "LoadBalancerBackendSecurityGroup"}
+    }
+  }
+}
