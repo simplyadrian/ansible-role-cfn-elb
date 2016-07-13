@@ -6,15 +6,14 @@
 
 - name: Template role
   template:
-    src: elb.yml
-    dest: "build/elb.{{eviron}}.{{elb_role_stack_name}}.yml"
+    src: elb.json.j2
+    dest: "build/elb.{{eviron}}.{{elb_role_stack_name}}.json"
 
 - name: Create or remove role stack
   cloudformation:
-    template: "build/elb.{{eviron}}.{{elb_role_stack_name}}.yml"
+    template: "build/elb.{{eviron}}.{{elb_role_stack_name}}.json"
     stack_name: "{{ elb_role_stack_name }}"
     state: "{{ elb_role_stack_state|default('present') }}"
     region: "{{ region|default('us-west-2') }}"
     security_token: "{{ lookup('env','AWS_SESSION_TOKEN')|default(omit, true) }}"
     tags: "{{ elb_tags }}"
-    template_format: yaml

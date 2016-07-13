@@ -1,0 +1,22 @@
+elb_scheme: internet-facing
+elb_health_check_healthy_threshold: 3
+elb_health_check_unhealthy_threshold: 3
+elb_health_check_timeout: 2
+elb_health_check_interval: 15
+elb_health_check_target: HTTP:80/up
+elb_sticky_session: false
+elb_listeners:
+- port: 80
+  instancePort: 80
+  protocol: http
+elb_internal_cidrs:
+- "10.201.0.0/17"
+elb_subnet_group: dmz
+region: us-west-2
+
+elb_logging_enabled: false
+elb_logging_interval: 5
+elb_cross_zone: false
+# elb_logging_bucket
+elb_logging_prefix: ''
+elb_drain_time: 0
