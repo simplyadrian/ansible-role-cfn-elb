@@ -13,10 +13,10 @@ elb_internal_cidrs:
 - "10.201.0.0/17"
 elb_subnet_group: dmz
 region: us-west-2
-
 elb_logging_enabled: false
 elb_logging_interval: 5
 elb_cross_zone: false
 # elb_logging_bucket
 elb_logging_prefix: ''
 elb_drain_time: 0
+elb_tags: {}

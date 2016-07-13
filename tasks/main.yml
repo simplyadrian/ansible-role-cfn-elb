@@ -7,11 +7,14 @@
 - name: Template role
   template:
     src: elb.json.j2
-    dest: "build/elb.{{environ}}.{{elb_role_stack_name}}.json"
+    dest: "build/{{elb_role_stack_name}}.json"
 
 - name: Create or remove role stack
   cloudformation:
-    template: "build/elb.{{environ}}.{{elb_role_stack_name}}.json"
+    template_parameters:
+      VPC: "{{ elb_vpc|default(omit) }}"
+      SubnetIDs: "{{ elb_subnets|default(omit) }}"
+    template: "build/{{elb_role_stack_name}}.json"
     stack_name: "{{ elb_role_stack_name }}"
     state: "{{ elb_role_stack_state|default('present') }}"
     region: "{{ region|default('us-west-2') }}"
