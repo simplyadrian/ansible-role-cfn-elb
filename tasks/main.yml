@@ -20,3 +20,6 @@
     region: "{{ region|default('us-west-2') }}"
     security_token: "{{ lookup('env','AWS_SESSION_TOKEN')|default(omit, true) }}"
     tags: "{{ elb_tags }}"
+  register: elb_cf_output
+
+- debug: msg="{{ elb_cf_output }}" verbosity=1
