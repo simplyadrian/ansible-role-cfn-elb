@@ -194,7 +194,7 @@
     },
     "DnsName": {
       "Description": "Add backends to this security group to allow access from the ELB",
-      "Value": {"Fn:GetAtt": [ "LoadBalancerBackendSecurityGroup", "DNSName" ]}
+      "Value": {"Fn::GetAtt": [ "LoadBalancerBackendSecurityGroup", "DNSName" ]}
     }
   }
 }
